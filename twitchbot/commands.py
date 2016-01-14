@@ -9,11 +9,12 @@ client = MongoClient()
 db = client[cfg.CHANNEL_NAME]
 
 class Command:
-    def __init__(self, fn, name, mod=False):
+    def __init__(self, fn, name, userlevel=0):
         self.name = name
         self.fn = fn
-        self.mod = mod
+        self.ul = userlevel
         self.enabled = True
+        self.custom = False
     def __str__(self):
         return '[{}]'.format(name)
 
@@ -27,15 +28,55 @@ def init_custom_commands():
         result[name] = Command(fn, name)
     return result
 
+def init_preferences():
+    cursor = db.command_prefs.find()
+    for doc in cursor:
+        name = doc['name']
+        ul = doc['ul']
+        enabled = doc['enabled']
+        if name in _commands:
+            command = _commands[name]
+        elif name in _custom_commands:
+            command = _custom_commands[name]
+        else:
+            continue
+        command.ul = ul
+        command.enabled = enabled
+
+def get_preferences(command):
+    doc = db.command_prefs.find_one({'name': command.name})
+    if doc==None:
+        db.command_prefs.insert_one(
+            {
+                "name": command.name,
+                "ul": command.ul,
+                "enabled": command.enabled
+            }
+        )
+        doc = db.command_prefs.find_one({'name': name})
+    return doc
+
+def set_preferences(command):
+    db.command_prefs.update_one(
+        {"name": command.name}, 
+        {
+            "$set": {
+                "ul": command.ul,
+                "enabled": command.enabled
+            }
+        },
+        upsert = True
+    )
+
 _CARDS_FILE = 'cards.collectible.json'
 _custom_commands = init_custom_commands()
 _commands = {} 
 _cards = extract_cards(_CARDS_FILE)
 _minions = list(filter(lambda x: x['type']=='MINION', _cards.values()))
 
-def command(name, mod=False):
+def command(name, userlevel=0):
     def add(fn):
-        cmd = Command(fn, name, mod)
+        cmd = Command(fn, name, userlevel)
         _commands[name] = cmd
         return fn
     return add
@@ -62,7 +103,7 @@ def remove_custom_command(name):
 def process_command(username, msg, command):
     if command in _commands:
         cmd = _commands[command]
-        if cmd.mod and not users.get_user(username)['mod']:
+        if cmd.ul > users.get_user(username)['status']:
             return 'You are not authorized to perform this command'
         elif cmd.enabled:
             return _commands[command].fn(username,msg)
@@ -70,7 +111,7 @@ def process_command(username, msg, command):
             return 'This command has been disabled'
     elif command in _custom_commands:
         cmd = _custom_commands[command]
-        if cmd.mod and not users.get_user(username)['mod']:
+        if cmd.ul > users.get_user(username)['status']:
             return 'You are not authorized to perform this command'
         elif cmd.enabled:
             return _custom_commands[command].fn(username, msg)
@@ -79,7 +120,7 @@ def process_command(username, msg, command):
     else:
         return '!{} is not a valid command. Use !commands for available commands'.format(command)
 
-@command('addcom', mod=True)
+@command('addcom', userlevel=2)
 def add_command(username, msg):
     parsed = msg.partition(' ')
     name = parsed[0]
@@ -94,7 +135,7 @@ def add_command(username, msg):
         add_custom_command(name, response)
         return 'Command !{} added'.format(name)
 
-@command('delcom', mod=True)
+@command('delcom', userlevel=2)
 def delete_command(username, msg):
     name = msg
     if name in _commands:
@@ -105,7 +146,7 @@ def delete_command(username, msg):
     else:
         return 'This command does not exist'
 
-@command('enable', mod=True)
+@command('enable', userlevel=2)
 def enable(username, msg):
     name = msg
     if name in _commands:
@@ -118,9 +159,10 @@ def enable(username, msg):
         return 'This command is already enabled'
     else:
         cmd.enabled = True
+        set_preferences(cmd)
         return 'The command !{} has been enabled'.format(cmd.name)
 
-@command('disable', mod=False)
+@command('disable', userlevel=2)
 def disable(username, msg):
     name = msg
     if name in _commands:
@@ -134,6 +176,7 @@ def disable(username, msg):
             return 'Cannot disable this command'
         else:
             cmd.enabled = False
+            set_preferences(cmd)
             return 'The command !{} has been disabled'.format(cmd.name)
     else:
         return 'This command is already disabled'
@@ -170,7 +213,7 @@ def portal(username, msg):
             users.update_user(user)
             return 'Portaled a {}, {} earned {} points and has {} points'.format(minion['name'].upper(), username, gain, user['points'])
 
-@command("give", mod=True)
+@command("give", userlevel=2)
 def give_points(username, message):
     arr = message.partition(' ')
     recipient = arr[0]
@@ -253,10 +296,10 @@ def count(username, msg):
 def commands(username, msg):
     s = 'These are the commands I respond to: '
     for name, command in _commands.items():
-        if not command.mod and command.enabled:
+        if command.ul<=0 and command.enabled:
             s+='!'+name+' '
     for name, command in _custom_commands.items():
-        if not command.mod and command.enabled:
+        if command.ul<=0 and command.enabled:
             s+='!'+name+' '
     return s[:-1]
 
@@ -265,3 +308,27 @@ def points(username, msg):
     user = users.get_user(username)
     return '{} has {} points'.format(user['name'],user['points'])
 
+@command("chmod", userlevel=2)
+def chmod(username, msg):
+    arr = msg.partition(' ')
+    name = arr[0]
+    try:
+        userlevel = int(arr[2])
+    except ValueError:
+        return 'Use chmod {command} {userlevel} to change priviledges'
+    if name in _commands:
+        cmd = _commands[name]
+    elif name in _custom_commands:
+        cmd = _custom_commands[name]
+    else:
+        return 'The command !{} does not exist'.format(name)
+    if userlevel < 0 or userlevel > 2:
+        return 'Userlevels go between 0 and 2'
+    else:
+        cmd.ul = userlevel
+        set_preferences(cmd)
+        levels = {0: 'all users', 1: 'moderators', 2: 'the owner'}
+        print(cmd.ul)
+        return '!{} made accessible to {}'.format(cmd.name, levels[userlevel])
+
+init_preferences()
