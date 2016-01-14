@@ -25,7 +25,9 @@ def init_custom_commands():
         name = doc['name']
         response = doc['response']
         fn = lambda username, message: response
-        result[name] = Command(fn, name)
+        cmd = Command(fn, name)
+        cmd.custom = True
+        result[name] = cmd
     return result
 
 def init_preferences():
@@ -36,8 +38,6 @@ def init_preferences():
         enabled = doc['enabled']
         if name in _commands:
             command = _commands[name]
-        elif name in _custom_commands:
-            command = _custom_commands[name]
         else:
             continue
         command.ul = ul
@@ -69,8 +69,7 @@ def set_preferences(command):
     )
 
 _CARDS_FILE = 'cards.collectible.json'
-_custom_commands = init_custom_commands()
-_commands = {} 
+_commands = init_custom_commands()
 _cards = extract_cards(_CARDS_FILE)
 _minions = list(filter(lambda x: x['type']=='MINION', _cards.values()))
 
@@ -84,7 +83,8 @@ def command(name, userlevel=0):
 
 def add_custom_command(name, response):
     cmd = Command(lambda username, message: response, name)
-    _custom_commands[name] = cmd
+    cmd.custom = True
+    _commands[name] = cmd
     db.custom_commands.insert_one(
         {
             'name': name,
@@ -93,8 +93,8 @@ def add_custom_command(name, response):
     )
 
 def remove_custom_command(name):
-    if name in _custom_commands:
-        del _custom_commands[name]
+    if name in _commands and _commands[name].custom:
+        del _commands[name]
         db.custom_commands.delete_many({'name': name})
         return True
     else:
@@ -109,14 +109,6 @@ def process_command(username, msg, command):
             return _commands[command].fn(username,msg)
         else:
             return 'This command has been disabled'
-    elif command in _custom_commands:
-        cmd = _custom_commands[command]
-        if cmd.ul > users.get_user(username)['status']:
-            return 'You are not authorized to perform this command'
-        elif cmd.enabled:
-            return _custom_commands[command].fn(username, msg)
-        else:
-            return 'This command has been disabled'
     else:
         return '!{} is not a valid command. Use !commands for available commands'.format(command)
 
@@ -127,9 +119,9 @@ def add_command(username, msg):
     response = parsed[2]
     if response=='':
         return 'Not a valid command, use !add {command name} {command response}'
-    elif name in _commands:
+    elif name in _commands and not _commands[name].custom:
         return 'The command is built-in, it cannot be modified'
-    elif name in _custom_commands:
+    elif name in _commands and _commands[name].custom:
         return 'The command already exists, use !remove to remove it'
     else:
         add_custom_command(name, response)
@@ -138,9 +130,9 @@ def add_command(username, msg):
 @command('delcom', userlevel=2)
 def delete_command(username, msg):
     name = msg
-    if name in _commands:
+    if name in _commands and not _commands[name].custom:
         return 'This command is built-in, it cannot be removed'
-    elif name in _custom_commands:
+    elif name in _commands and _commands[name].custom:
         remove_custom_command(name)
         return 'Command !{} removed'.format(name)
     else:
@@ -151,8 +143,6 @@ def enable(username, msg):
     name = msg
     if name in _commands:
         cmd = _commands[name]
-    elif name in _custom_commands:
-        cmd = _custom_commands[name]
     else:
         return 'The command !{} does not exist'.format(name)
     if cmd.enabled:
@@ -167,8 +157,6 @@ def disable(username, msg):
     name = msg
     if name in _commands:
         cmd = _commands[name]
-    elif name in _custom_commands:
-        cmd = _custom_commands[name]
     else:
         return 'The command !{} does not exist'.format(name)
     if cmd.enabled:
@@ -298,9 +286,6 @@ def commands(username, msg):
     for name, command in _commands.items():
         if command.ul<=0 and command.enabled:
             s+='!'+name+' '
-    for name, command in _custom_commands.items():
-        if command.ul<=0 and command.enabled:
-            s+='!'+name+' '
     return s[:-1]
 
 @command("points")
@@ -318,8 +303,6 @@ def chmod(username, msg):
         return 'Use chmod {command} {userlevel} to change priviledges'
     if name in _commands:
         cmd = _commands[name]
-    elif name in _custom_commands:
-        cmd = _custom_commands[name]
     else:
         return 'The command !{} does not exist'.format(name)
     if userlevel < 0 or userlevel > 2:
