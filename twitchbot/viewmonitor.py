@@ -17,10 +17,12 @@ def add_points():
             for name in chattersJson['chatters'][key]:
                 user = users.get_user(name)
                 user['points']+=cfg.PPM
-                if key!='viewers':
-                    user['mod'] = True
+                if name.lower() == cfg.CHANNEL_NAME.lower():
+                    user['status'] = 2
+                elif key!='viewers':
+                    user['status'] = 1
                 else:
-                    user['mod'] = False
+                    user['status'] = 0
                 users.update_user(user)
         sleep(60)
 

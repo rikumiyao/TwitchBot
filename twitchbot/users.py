@@ -5,14 +5,14 @@ client = MongoClient()
 db = client[cfg.CHANNEL_NAME]
 users = db.users
 
-_attributes = ['name','count','points', 'mod']
+_attributes = ['name','count','points', 'status']
 
-def create_user(name, points=0, count=0, mod=False):
+def create_user(name, points=0, count=0, status=0):
    return {
             'name': name.lower(),
             'points': points,
             'count': count,
-            'mod': mod
+            'status': status
           }
 
 def get_user(name):
