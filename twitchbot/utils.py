@@ -3,8 +3,8 @@ import re
 
 def extract_cards(filename):
     cards = {}
-    json_data = open(filename).read()
-    data = json.loads(json_data)
+    with open(filename, encoding="utf8") as data_file:
+        data = json.load(data_file)
     for card in data:
         name = card['name'].lower()
         if 'text' in card:

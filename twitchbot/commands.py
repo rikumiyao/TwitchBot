@@ -118,7 +118,7 @@ def add_command(username, msg):
     name = parsed[0]
     response = parsed[2]
     if response=='':
-        return 'Not a valid command, use !add {command name} {command response}'
+        return 'Not a valid command, use !addcom {command name} {command response}'
     elif name in _commands and not _commands[name].custom:
         return 'The command is built-in, it cannot be modified'
     elif name in _commands and _commands[name].custom:
