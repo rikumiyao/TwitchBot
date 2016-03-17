@@ -311,7 +311,15 @@ def chmod(username, msg):
         cmd.ul = userlevel
         set_preferences(cmd)
         levels = {0: 'all users', 1: 'moderators', 2: 'the owner'}
-        print(cmd.ul)
         return '!{} made accessible to {}'.format(cmd.name, levels[userlevel])
+
+@command("rand")
+def rand(username, msg):
+    try:
+        num = int(msg)
+    except ValueError:
+        return 'Please enter an integer'
+    randnum = random.randrange(num) + 1
+    return 'Your random number between 1 and {} is {}'.format(num, randnum)
 
 init_preferences()
